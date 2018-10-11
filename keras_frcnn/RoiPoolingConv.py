@@ -48,7 +48,9 @@ class RoiPoolingConv(Layer):
         else:
             return None, self.num_rois, self.pool_size, self.pool_size, self.nb_channels
 
-    def call(self, x, mask=None):#x是输入的张量，call函数就是计算从输入到输出。
+    def call(self, x, mask=None):
+        #x是输入的张量，call函数就是计算从输入到输出。
+        #输入的是两个网络的输出，一个是basenet，另一个是input_roi 是输入的感兴趣的区域。shape=(None, 4)
 
         assert(len(x) == 2)
 
@@ -59,14 +61,14 @@ class RoiPoolingConv(Layer):
 
         outputs = []
 
-        for roi_idx in range(self.num_rois):
+        for roi_idx in range(self.num_rois):#num_rois = 4 一次感兴趣的区域个数
 
             x = rois[0, roi_idx, 0]
             y = rois[0, roi_idx, 1]
             w = rois[0, roi_idx, 2]
             h = rois[0, roi_idx, 3]
             
-            row_length = w / float(self.pool_size)
+            row_length = w / float(self.pool_size)# self.pool_size 输出的固定的方阵 exp：7X7
             col_length = h / float(self.pool_size)
 
             num_pool_regions = self.pool_size
@@ -115,7 +117,7 @@ class RoiPoolingConv(Layer):
         else:
             final_output = K.permute_dimensions(final_output, (0, 1, 2, 3, 4))
 
-        return final_output
+        return final_output  #[每个感兴趣的区域ROIpool后的结果，]
     
     
     def get_config(self):

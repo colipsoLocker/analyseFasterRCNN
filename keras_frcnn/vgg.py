@@ -106,8 +106,9 @@ def classifier(base_layers, input_rois, num_rois, nb_classes = 21, trainable=Fal
         pooling_regions = 7
         input_shape = (num_rois,512,7,7)
 
-    out_roi_pool = RoiPoolingConv(pooling_regions, num_rois)([base_layers, input_rois])
+    out_roi_pool = RoiPoolingConv(pooling_regions, num_rois)([base_layers, input_rois]) #每个感兴趣的区域一层
 
+    #通过TimeDistributed 把每个感兴趣的区域分别Flatten, Dense , dropout ,Dense来做分类，以及线性回归坐标位置。
     out = TimeDistributed(Flatten(name='flatten'))(out_roi_pool)
     out = TimeDistributed(Dense(4096, activation='relu', name='fc1'))(out)
     out = TimeDistributed(Dropout(0.5))(out)

@@ -12,6 +12,7 @@ from keras.layers import Input
 from keras.models import Model
 from keras_frcnn import roi_helpers
 
+#处理命令行参数
 sys.setrecursionlimit(40000)
 
 parser = OptionParser()
@@ -188,7 +189,8 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 			ROIs_padded[:, :curr_shape[1], :] = ROIs
 			ROIs_padded[0, curr_shape[1]:, :] = ROIs[0, 0, :]
 			ROIs = ROIs_padded
-
+		#从此处可以看出，在训练的时候model_classifier 的input_roi是从训练集中另外输入的。
+		#而在预测的时候，input_roi是从rpn网络得到的
 		[P_cls, P_regr] = model_classifier_only.predict([F, ROIs])
 
 		for ii in range(P_cls.shape[1]):

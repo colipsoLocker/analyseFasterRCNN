@@ -77,7 +77,7 @@ C.num_rois = int(options.num_rois)  #估计是在RoI pooling层使每个RoI生�
 # nn_base ：共享基础网络
 # rpn ：在base_layer 的基础上首先用3X3的卷积核作一次卷积，然后分别连接分类层和bbox的回归层。其中分类层为长X宽X9，回归层为长*宽*9*4，其中9是标准anchor的数量
 #		返回的是基础网络，分类网络，回归网络的结果 [x_class, x_regr, base_layers]
-# classifier
+# classifier：输入的是baselayers 以及感兴趣的区域，输出是 [out_class, out_regr] 每个感兴趣区域的类别及回归。
 
 if options.network == 'vgg':
 	C.network = 'vgg'
@@ -97,15 +97,15 @@ else:
 	# set the path to weights based on backend and model
 	C.base_net_weights = nn.get_weight_path()
 
-all_imgs, classes_count, class_mapping = get_data(options.train_path)
+all_imgs, classes_count, class_mapping = get_data(options.train_path) #获得训练数据
 
-if 'bg' not in classes_count:
+if 'bg' not in classes_count: #补充背景类型
 	classes_count['bg'] = 0
 	class_mapping['bg'] = len(class_mapping)
 
 C.class_mapping = class_mapping
 
-inv_map = {v: k for k, v in class_mapping.items()}
+inv_map = {v: k for k, v in class_mapping.items()} #图像序号转换
 
 print('Training images per class:')
 pprint.pprint(classes_count)
@@ -144,11 +144,11 @@ shared_layers = nn.nn_base(img_input, trainable=True)
 
 # define the RPN, built on the base layers
 num_anchors = len(C.anchor_box_scales) * len(C.anchor_box_ratios)
-rpn = nn.rpn(shared_layers, num_anchors)
+rpn = nn.rpn(shared_layers, num_anchors)   # [x_class, x_regr, base_layers]
 
 classifier = nn.classifier(shared_layers, roi_input, C.num_rois, nb_classes=len(classes_count), trainable=True)
 
-model_rpn = Model(img_input, rpn[:2])
+model_rpn = Model(img_input, rpn[:2]) # rpn[:2]：[x_class, x_regr】
 model_classifier = Model([img_input, roi_input], classifier)
 
 # this is a model that holds both the RPN and the classifier, used to load/save weights for the models
