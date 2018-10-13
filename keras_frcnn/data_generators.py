@@ -8,14 +8,14 @@ import threading
 import itertools
 
 
-def union(au, bu, area_intersection):
+def union(au, bu, area_intersection): #两个区域的合并
 	area_a = (au[2] - au[0]) * (au[3] - au[1])
 	area_b = (bu[2] - bu[0]) * (bu[3] - bu[1])
 	area_union = area_a + area_b - area_intersection
 	return area_union
 
 
-def intersection(ai, bi):
+def intersection(ai, bi): #两个区域的交叉区域
 	x = max(ai[0], bi[0])
 	y = max(ai[1], bi[1])
 	w = min(ai[2], bi[2]) - x
@@ -37,7 +37,7 @@ def iou(a, b):
 	return float(area_i) / float(area_u + 1e-6)
 
 
-def get_new_img_size(width, height, img_min_side=600):
+def get_new_img_size(width, height, img_min_side=600):#等比例缩放到最短边是img_min_side
 	if width <= height:
 		f = float(img_min_side) / width
 		resized_height = int(f * height)
@@ -78,18 +78,19 @@ class SampleSelector:
 
 def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_length_calc_function):
 
+	# 各种anchor
 	downscale = float(C.rpn_stride)
 	anchor_sizes = C.anchor_box_scales
 	anchor_ratios = C.anchor_box_ratios
 	num_anchors = len(anchor_sizes) * len(anchor_ratios)	
 
 	# calculate the output map size based on the network architecture
-
+	#如果用vgg，那么rpn网络输出的图像是输入图像缩小16倍
 	(output_width, output_height) = img_length_calc_function(resized_width, resized_height)
 
 	n_anchratios = len(anchor_ratios)
 	
-	# initialise empty output objectives
+	# initialise empty output objectives 初始化感兴趣的区域
 	y_rpn_overlap = np.zeros((output_height, output_width, num_anchors))
 	y_is_box_valid = np.zeros((output_height, output_width, num_anchors))
 	y_rpn_regr = np.zeros((output_height, output_width, num_anchors * 4))
@@ -98,7 +99,7 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 
 	num_anchors_for_bbox = np.zeros(num_bboxes).astype(int)
 	best_anchor_for_bbox = -1*np.ones((num_bboxes, 4)).astype(int)
-	best_iou_for_bbox = np.zeros(num_bboxes).astype(np.float32)
+	best_iou_for_bbox = np.zeros(num_bboxes).astype(np.float32) #Intersection over Union
 	best_x_for_bbox = np.zeros((num_bboxes, 4)).astype(int)
 	best_dx_for_bbox = np.zeros((num_bboxes, 4)).astype(np.float32)
 
@@ -106,21 +107,21 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 	gta = np.zeros((num_bboxes, 4))
 	for bbox_num, bbox in enumerate(img_data['bboxes']):
 		# get the GT box coordinates, and resize to account for image resizing
-		gta[bbox_num, 0] = bbox['x1'] * (resized_width / float(width))
+		gta[bbox_num, 0] = bbox['x1'] * (resized_width / float(width)) #gta :ground truth area
 		gta[bbox_num, 1] = bbox['x2'] * (resized_width / float(width))
 		gta[bbox_num, 2] = bbox['y1'] * (resized_height / float(height))
 		gta[bbox_num, 3] = bbox['y2'] * (resized_height / float(height))
 	
 	# rpn ground truth
 
-	for anchor_size_idx in range(len(anchor_sizes)):
+	for anchor_size_idx in range(len(anchor_sizes)): #第几个anchor
 		for anchor_ratio_idx in range(n_anchratios):
-			anchor_x = anchor_sizes[anchor_size_idx] * anchor_ratios[anchor_ratio_idx][0]
+			anchor_x = anchor_sizes[anchor_size_idx] * anchor_ratios[anchor_ratio_idx][0] #生成ancher在原图上的坐标
 			anchor_y = anchor_sizes[anchor_size_idx] * anchor_ratios[anchor_ratio_idx][1]	
 			
-			for ix in range(output_width):					
+			for ix in range(output_width):					#对网络输出的特征图开始遍历生成密密麻麻的anchers
 				# x-coordinates of the current anchor box	
-				x1_anc = downscale * (ix + 0.5) - anchor_x / 2
+				x1_anc = downscale * (ix + 0.5) - anchor_x / 2 #形成从特征图还原到原始图的左上，右下坐标。
 				x2_anc = downscale * (ix + 0.5) + anchor_x / 2	
 				
 				# ignore boxes that go across image boundaries					
@@ -138,7 +139,7 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 						continue
 
 					# bbox_type indicates whether an anchor should be a target 
-					bbox_type = 'neg'
+					bbox_type = 'neg' #给一个bbox的默认值
 
 					# this is the best IOU for the (x,y) coord and the current anchor
 					# note that this is different from the best IOU for a GT bbox
@@ -146,16 +147,17 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 
 					for bbox_num in range(num_bboxes):
 						
-						# get IOU of the current GT box and the current anchor box
+						# get IOU of the current GT box and the current anchor box 计算ground truth和anchors的iou
 						curr_iou = iou([gta[bbox_num, 0], gta[bbox_num, 2], gta[bbox_num, 1], gta[bbox_num, 3]], [x1_anc, y1_anc, x2_anc, y2_anc])
 						# calculate the regression targets if they will be needed
+						#如果iou是当前有物体区域中最大的，或者已经达到了最低要求。
 						if curr_iou > best_iou_for_bbox[bbox_num] or curr_iou > C.rpn_max_overlap:
-							cx = (gta[bbox_num, 0] + gta[bbox_num, 1]) / 2.0
+							cx = (gta[bbox_num, 0] + gta[bbox_num, 1]) / 2.0 #计算ground truth中心点
 							cy = (gta[bbox_num, 2] + gta[bbox_num, 3]) / 2.0
-							cxa = (x1_anc + x2_anc)/2.0
+							cxa = (x1_anc + x2_anc)/2.0 #ancher的中心点
 							cya = (y1_anc + y2_anc)/2.0
 
-							tx = (cx - cxa) / (x2_anc - x1_anc)
+							tx = (cx - cxa) / (x2_anc - x1_anc) #计算论文中的tx,ty,tw,th用于bbox回归
 							ty = (cy - cya) / (y2_anc - y1_anc)
 							tw = np.log((gta[bbox_num, 1] - gta[bbox_num, 0]) / (x2_anc - x1_anc))
 							th = np.log((gta[bbox_num, 3] - gta[bbox_num, 2]) / (y2_anc - y1_anc))
@@ -163,15 +165,15 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 						if img_data['bboxes'][bbox_num]['class'] != 'bg':
 
 							# all GT boxes should be mapped to an anchor box, so we keep track of which anchor box was best
-							if curr_iou > best_iou_for_bbox[bbox_num]:
+							if curr_iou > best_iou_for_bbox[bbox_num]: #记录回特征图的ancher点
 								best_anchor_for_bbox[bbox_num] = [jy, ix, anchor_ratio_idx, anchor_size_idx]
-								best_iou_for_bbox[bbox_num] = curr_iou
-								best_x_for_bbox[bbox_num,:] = [x1_anc, x2_anc, y1_anc, y2_anc]
+								best_iou_for_bbox[bbox_num] = curr_iou #记录当前iou
+								best_x_for_bbox[bbox_num,:] = [x1_anc, x2_anc, y1_anc, y2_anc] #应该就是rpn输出的内容之一
 								best_dx_for_bbox[bbox_num,:] = [tx, ty, tw, th]
 
 							# we set the anchor to positive if the IOU is >0.7 (it does not matter if there was another better box, it just indicates overlap)
 							if curr_iou > C.rpn_max_overlap:
-								bbox_type = 'pos'
+								bbox_type = 'pos' #含有物品
 								num_anchors_for_bbox[bbox_num] += 1
 								# we update the regression layer target if this IOU is the best for the current (x,y) and anchor position
 								if curr_iou > best_iou_for_loc:
@@ -186,8 +188,8 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 
 					# turn on or off outputs depending on IOUs
 					if bbox_type == 'neg':
-						y_is_box_valid[jy, ix, anchor_ratio_idx + n_anchratios * anchor_size_idx] = 1
-						y_rpn_overlap[jy, ix, anchor_ratio_idx + n_anchratios * anchor_size_idx] = 0
+						y_is_box_valid[jy, ix, anchor_ratio_idx + n_anchratios * anchor_size_idx] = 1 #第几个ancher是有效的
+						y_rpn_overlap[jy, ix, anchor_ratio_idx + n_anchratios * anchor_size_idx] = 0 #是否交叉
 					elif bbox_type == 'neutral':
 						y_is_box_valid[jy, ix, anchor_ratio_idx + n_anchratios * anchor_size_idx] = 0
 						y_rpn_overlap[jy, ix, anchor_ratio_idx + n_anchratios * anchor_size_idx] = 0
@@ -198,11 +200,12 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 						y_rpn_regr[jy, ix, start:start+4] = best_regr
 
 	# we ensure that every bbox has at least one positive RPN region
+	#至少保证每一个object都有一个RPN region
 
 	for idx in range(num_anchors_for_bbox.shape[0]):
-		if num_anchors_for_bbox[idx] == 0:
+		if num_anchors_for_bbox[idx] == 0: #说明不含有物品
 			# no box with an IOU greater than zero ...
-			if best_anchor_for_bbox[idx, 0] == -1:
+			if best_anchor_for_bbox[idx, 0] == -1: #说明还没有交叉
 				continue
 			y_is_box_valid[
 				best_anchor_for_bbox[idx,0], best_anchor_for_bbox[idx,1], best_anchor_for_bbox[idx,2] + n_anchratios *
@@ -223,15 +226,15 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 	y_rpn_regr = np.transpose(y_rpn_regr, (2, 0, 1))
 	y_rpn_regr = np.expand_dims(y_rpn_regr, axis=0)
 
-	pos_locs = np.where(np.logical_and(y_rpn_overlap[0, :, :, :] == 1, y_is_box_valid[0, :, :, :] == 1))
-	neg_locs = np.where(np.logical_and(y_rpn_overlap[0, :, :, :] == 0, y_is_box_valid[0, :, :, :] == 1))
+	pos_locs = np.where(np.logical_and(y_rpn_overlap[0, :, :, :] == 1, y_is_box_valid[0, :, :, :] == 1)) #rpn与GT有交叉，且是个有效的bbox
+	neg_locs = np.where(np.logical_and(y_rpn_overlap[0, :, :, :] == 0, y_is_box_valid[0, :, :, :] == 1)) #rpn与GT不交叉，且是个有效的bbox，为了派出周边无效的bbox？
 
 	num_pos = len(pos_locs[0])
 
 	# one issue is that the RPN has many more negative than positive regions, so we turn off some of the negative
 	# regions. We also limit it to 256 regions.
 	num_regions = 256
-
+	#只选择256个有效的区域出来，这个选择的过程可能会影响小物体的检测
 	if len(pos_locs[0]) > num_regions/2:
 		val_locs = random.sample(range(len(pos_locs[0])), len(pos_locs[0]) - num_regions/2)
 		y_is_box_valid[0, pos_locs[0][val_locs], pos_locs[1][val_locs], pos_locs[2][val_locs]] = 0
@@ -241,10 +244,10 @@ def calc_rpn(C, img_data, width, height, resized_width, resized_height, img_leng
 		val_locs = random.sample(range(len(neg_locs[0])), len(neg_locs[0]) - num_pos)
 		y_is_box_valid[0, neg_locs[0][val_locs], neg_locs[1][val_locs], neg_locs[2][val_locs]] = 0
 
-	y_rpn_cls = np.concatenate([y_is_box_valid, y_rpn_overlap], axis=1)
+	y_rpn_cls = np.concatenate([y_is_box_valid, y_rpn_overlap], axis=1) #矩阵合并，
 	y_rpn_regr = np.concatenate([np.repeat(y_rpn_overlap, 4, axis=1), y_rpn_regr], axis=1)
 
-	return np.copy(y_rpn_cls), np.copy(y_rpn_regr)
+	return np.copy(y_rpn_cls), np.copy(y_rpn_regr) #返回 (output_height, output_width, num_anchors) (output_height, output_width, num_anchors*4)
 
 
 class threadsafe_iter:
@@ -270,6 +273,7 @@ def threadsafe_generator(f):
 		return threadsafe_iter(f(*a, **kw))
 	return g
 
+#all_img_data的样例 :[{filename:{filepath:*,width:*,height:*,bboxes:['class':*, 'x1': *, 'x2': *, 'y1':*, 'y2':*]}}]
 def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, backend, mode='train'):
 
 	# The following line is not useful with Python 3.5, it is kept for the legacy
@@ -294,6 +298,7 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, backen
 				else:
 					img_data_aug, x_img = data_augment.augment(img_data, C, augment=False)
 
+				#img_data_aug：[{filename:{filepath:*,width:*,height:*,bboxes:['class':*, 'x1': *, 'x2': *, 'y1':*, 'y2':*]}}]
 				(width, height) = (img_data_aug['width'], img_data_aug['height'])
 				(rows, cols, _) = x_img.shape
 

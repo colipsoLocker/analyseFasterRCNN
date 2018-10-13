@@ -111,23 +111,25 @@ print('Training images per class:')
 pprint.pprint(classes_count)
 print('Num classes (including bg) = {}'.format(len(classes_count)))
 
-config_output_filename = options.config_filename
+config_output_filename = options.config_filename #设置存储的文件名
 
 with open(config_output_filename, 'wb') as config_f:
 	pickle.dump(C,config_f)
 	print('Config has been written to {}, and can be loaded when testing to ensure correct results'.format(config_output_filename))
 
-random.shuffle(all_imgs)
+random.shuffle(all_imgs) #随机化
 
 num_imgs = len(all_imgs)
 
+#分开成训练集和检验集
 train_imgs = [s for s in all_imgs if s['imageset'] == 'trainval']
 val_imgs = [s for s in all_imgs if s['imageset'] == 'test']
 
 print('Num train samples {}'.format(len(train_imgs)))
 print('Num val samples {}'.format(len(val_imgs)))
 
-
+# 输入的train_imgs 的格式[{filename:{filepath:*,width:*,height:*,bboxes:['class':*, 'x1': *, 'x2': *, 'y1':*, 'y2':*]}}]
+# 返回的格式 特征层 (output_height, output_width, num_anchors) (output_height, output_width, num_anchors*4)
 data_gen_train = data_generators.get_anchor_gt(train_imgs, classes_count, C, nn.get_img_output_length, K.image_dim_ordering(), mode='train')
 data_gen_val = data_generators.get_anchor_gt(val_imgs, classes_count, C, nn.get_img_output_length,K.image_dim_ordering(), mode='val')
 
@@ -140,19 +142,24 @@ img_input = Input(shape=input_shape_img)
 roi_input = Input(shape=(None, 4))
 
 # define the base network (resnet here, can be VGG, Inception, etc)
-shared_layers = nn.nn_base(img_input, trainable=True)
+shared_layers = nn.nn_base(img_input, trainable=True) #基本的输出
 
 # define the RPN, built on the base layers
 num_anchors = len(C.anchor_box_scales) * len(C.anchor_box_ratios)
-rpn = nn.rpn(shared_layers, num_anchors)   # [x_class, x_regr, base_layers]
+rpn = nn.rpn(shared_layers, num_anchors)   # [x_class, x_regr, base_layers] 输出前两个是num_anchors输出一层，以及num_anchors * 4
 
+#classifier 输入的是基本网络的最后一层，以及感兴趣的区域，输出的是[out_class, out_regr] softmax后的类别和回归结果
+#每一层有一个类别，
 classifier = nn.classifier(shared_layers, roi_input, C.num_rois, nb_classes=len(classes_count), trainable=True)
 
+#构建模型
 model_rpn = Model(img_input, rpn[:2]) # rpn[:2]：[x_class, x_regr】
 model_classifier = Model([img_input, roi_input], classifier)
 
 # this is a model that holds both the RPN and the classifier, used to load/save weights for the models
-model_all = Model([img_input, roi_input], rpn[:2] + classifier)
+model_all = Model([img_input, roi_input], rpn[:2] + classifier) 
+#是为了保存两个模型使用的,需要注意的是list+list是列表连接运算符【Python 变量类型 | 菜鸟教程】；
+# model_all = Model([img_input, roi_input], [rpn[0] , rpn[1], classifier[0],classifier[1] ])也可以，但是model_all = Model([img_input, roi_input], [rpn[:2], classifier])这样是不行的
 
 try:
 	print('loading weights from {}'.format(C.base_net_weights))
@@ -162,6 +169,7 @@ except:
 	print('Could not load pretrained model weights. Weights can be found in the keras application folder \
 		https://github.com/fchollet/keras/tree/master/keras/applications')
 
+#构建各网络的损失函数
 optimizer = Adam(lr=1e-5)
 optimizer_classifier = Adam(lr=1e-5)
 model_rpn.compile(optimizer=optimizer, loss=[losses.rpn_loss_cls(num_anchors), losses.rpn_loss_regr(num_anchors)])
@@ -191,7 +199,7 @@ for epoch_num in range(num_epochs):
 
 	while True:
 		try:
-
+			#每个迭代处理一次rpn_accuracy_rpn_monitor用来监控表现
 			if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
 				mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
 				rpn_accuracy_rpn_monitor = []
@@ -199,11 +207,11 @@ for epoch_num in range(num_epochs):
 				if mean_overlapping_bboxes == 0:
 					print('RPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
 
-			X, Y, img_data = next(data_gen_train)
+			X, Y, img_data = next(data_gen_train) #np.copy(x_img), [np.copy(y_rpn_cls), np.copy(y_rpn_regr)], img_data_aug 用来给分类网络的输入
 
-			loss_rpn = model_rpn.train_on_batch(X, Y)
+			loss_rpn = model_rpn.train_on_batch(X, Y) #训练model_rpn
 
-			P_rpn = model_rpn.predict_on_batch(X)
+			P_rpn = model_rpn.predict_on_batch(X) #测试rpn
 
 			R = roi_helpers.rpn_to_roi(P_rpn[0], P_rpn[1], C, K.image_dim_ordering(), use_regr=True, overlap_thresh=0.7, max_boxes=300)
 			# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
@@ -229,7 +237,7 @@ for epoch_num in range(num_epochs):
 			
 			rpn_accuracy_rpn_monitor.append(len(pos_samples))
 			rpn_accuracy_for_epoch.append((len(pos_samples)))
-
+			#看起来是均衡选择样本
 			if C.num_rois > 1:
 				if len(pos_samples) < C.num_rois//2:
 					selected_pos_samples = pos_samples.tolist()
@@ -249,7 +257,7 @@ for epoch_num in range(num_epochs):
 					sel_samples = random.choice(neg_samples)
 				else:
 					sel_samples = random.choice(pos_samples)
-
+			#训练分类网络，得到分类和bbox回归
 			loss_class = model_classifier.train_on_batch([X, X2[:, sel_samples, :]], [Y1[:, sel_samples, :], Y2[:, sel_samples, :]])
 
 			losses[iter_num, 0] = loss_rpn[1]
@@ -294,7 +302,7 @@ for epoch_num in range(num_epochs):
 					model_all.save_weights(C.model_path)
 
 				break
-
+#上面大段的代码都是在写如何计算损失函数。
 		except Exception as e:
 			print('Exception: {}'.format(e))
 			continue

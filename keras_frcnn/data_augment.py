@@ -11,12 +11,12 @@ def augment(img_data, config, augment=True):
 
 	img_data_aug = copy.deepcopy(img_data)
 
-	img = cv2.imread(img_data_aug['filepath'])
+	img = cv2.imread(img_data_aug['filepath'])#根据路径读取图像
 
 	if augment:
 		rows, cols = img.shape[:2]
 
-		if config.use_horizontal_flips and np.random.randint(0, 2) == 0:
+		if config.use_horizontal_flips and np.random.randint(0, 2) == 0:#水平翻转
 			img = cv2.flip(img, 1)
 			for bbox in img_data_aug['bboxes']:
 				x1 = bbox['x1']
@@ -24,7 +24,7 @@ def augment(img_data, config, augment=True):
 				bbox['x2'] = cols - x1
 				bbox['x1'] = cols - x2
 
-		if config.use_vertical_flips and np.random.randint(0, 2) == 0:
+		if config.use_vertical_flips and np.random.randint(0, 2) == 0:#垂直翻转
 			img = cv2.flip(img, 0)
 			for bbox in img_data_aug['bboxes']:
 				y1 = bbox['y1']
@@ -32,7 +32,7 @@ def augment(img_data, config, augment=True):
 				bbox['y2'] = rows - y1
 				bbox['y1'] = rows - y2
 
-		if config.rot_90:
+		if config.rot_90:#旋转90度
 			angle = np.random.choice([0,90,180,270],1)[0]
 			if angle == 270:
 				img = np.transpose(img, (1,0,2))
@@ -70,4 +70,4 @@ def augment(img_data, config, augment=True):
 
 	img_data_aug['width'] = img.shape[1]
 	img_data_aug['height'] = img.shape[0]
-	return img_data_aug, img
+	return img_data_aug, img #返回输入的img_data 以及 处理后的图像

@@ -33,7 +33,7 @@ def get_img_output_length(width, height):
             input_length = (input_length - filter_size + stride) // stride
         return input_length
 
-    return get_output_length(width), get_output_length(height) 
+    return get_output_length(width), get_output_length(height) #返回的是
 
 def identity_block(input_tensor, kernel_size, filters, stage, block, trainable=True):
 

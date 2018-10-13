@@ -41,7 +41,7 @@ if C.network == 'resnet50':
 elif C.network == 'vgg':
 	import keras_frcnn.vgg as nn
 
-# turn off any data augmentation at test time
+# turn off any data augmentation at test time 在原图上测试，不再转换后的图像上测试
 C.use_horizontal_flips = False
 C.use_vertical_flips = False
 C.rot_90 = False
@@ -92,6 +92,7 @@ def get_real_coordinates(ratio, x1, y1, x2, y2):
 
 	return (real_x1, real_y1, real_x2 ,real_y2)
 
+#做一些配置项的转换
 class_mapping = C.class_mapping
 
 if 'bg' not in class_mapping:
@@ -122,7 +123,7 @@ feature_map_input = Input(shape=input_shape_features)
 # define the base network (resnet here, can be VGG, Inception, etc)
 shared_layers = nn.nn_base(img_input, trainable=True)
 
-# define the RPN, built on the base layers
+# define the RPN, built on the base layers 定义好网络结构
 num_anchors = len(C.anchor_box_scales) * len(C.anchor_box_ratios)
 rpn_layers = nn.rpn(shared_layers, num_anchors)
 
@@ -132,7 +133,7 @@ model_rpn = Model(img_input, rpn_layers)
 model_classifier_only = Model([feature_map_input, roi_input], classifier)
 
 model_classifier = Model([feature_map_input, roi_input], classifier)
-
+#加载权重，其实可以不用这么费事，直接保存整个模型，加载的时候也是加载模型。
 print('Loading weights from {}'.format(C.model_path))
 model_rpn.load_weights(C.model_path, by_name=True)
 model_classifier.load_weights(C.model_path, by_name=True)
@@ -147,7 +148,7 @@ classes = {}
 bbox_threshold = 0.8
 
 visualise = True
-
+#对文件夹下的图像进行预测
 for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	if not img_name.lower().endswith(('.bmp', '.jpeg', '.jpg', '.png', '.tif', '.tiff')):
 		continue
@@ -157,15 +158,15 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 
 	img = cv2.imread(filepath)
 
-	X, ratio = format_img(img, C)
+	X, ratio = format_img(img, C) #预处理图像
 
 	if K.image_dim_ordering() == 'tf':
 		X = np.transpose(X, (0, 2, 3, 1))
 
 	# get the feature maps and output from the RPN
-	[Y1, Y2, F] = model_rpn.predict(X)
+	[Y1, Y2, F] = model_rpn.predict(X) #RPN输出区域预测，包括区域以及坐标
 	
-
+	#把rpn转成roi给classifier用
 	R = roi_helpers.rpn_to_roi(Y1, Y2, C, K.image_dim_ordering(), overlap_thresh=0.7)
 
 	# convert from (x1,y1,x2,y2) to (x,y,w,h)
@@ -177,7 +178,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	probs = {}
 
 	for jk in range(R.shape[0]//C.num_rois + 1):
-		ROIs = np.expand_dims(R[C.num_rois*jk:C.num_rois*(jk+1), :], axis=0)
+		ROIs = np.expand_dims(R[C.num_rois*jk:C.num_rois*(jk+1), :], axis=0) #处理感兴趣的区域
 		if ROIs.shape[1] == 0:
 			break
 
@@ -198,7 +199,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 			if np.max(P_cls[0, ii, :]) < bbox_threshold or np.argmax(P_cls[0, ii, :]) == (P_cls.shape[2] - 1):
 				continue
 
-			cls_name = class_mapping[np.argmax(P_cls[0, ii, :])]
+			cls_name = class_mapping[np.argmax(P_cls[0, ii, :])]#输出分类网络结论
 
 			if cls_name not in bboxes:
 				bboxes[cls_name] = []
@@ -213,23 +214,24 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 				ty /= C.classifier_regr_std[1]
 				tw /= C.classifier_regr_std[2]
 				th /= C.classifier_regr_std[3]
-				x, y, w, h = roi_helpers.apply_regr(x, y, w, h, tx, ty, tw, th)
+				x, y, w, h = roi_helpers.apply_regr(x, y, w, h, tx, ty, tw, th)#把归回后的偏移计算上去
 			except:
 				pass
+			#记录原图bbox的坐标位置以及概率值，是个列表，一个类别可能有多个位置
 			bboxes[cls_name].append([C.rpn_stride*x, C.rpn_stride*y, C.rpn_stride*(x+w), C.rpn_stride*(y+h)])
 			probs[cls_name].append(np.max(P_cls[0, ii, :]))
 
 	all_dets = []
-
-	for key in bboxes:
+	#开始画图
+	for key in bboxes: #对每个类别
 		bbox = np.array(bboxes[key])
-
+		#做一下非最大值抑制，对多个重叠的框保留最好的一个https://www.cnblogs.com/makefile/p/nms.html。感觉这里还可以优化并加速
 		new_boxes, new_probs = roi_helpers.non_max_suppression_fast(bbox, np.array(probs[key]), overlap_thresh=0.5)
 		for jk in range(new_boxes.shape[0]):
 			(x1, y1, x2, y2) = new_boxes[jk,:]
-
+			#从特征图映射回原真实坐标，用rpn和roi的转换也估计是映射使用以及论文中偏移计算使用
 			(real_x1, real_y1, real_x2, real_y2) = get_real_coordinates(ratio, x1, y1, x2, y2)
-
+			#画框框
 			cv2.rectangle(img,(real_x1, real_y1), (real_x2, real_y2), (int(class_to_color[key][0]), int(class_to_color[key][1]), int(class_to_color[key][2])),2)
 
 			textLabel = '{}: {}'.format(key,int(100*new_probs[jk]))
@@ -237,7 +239,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 
 			(retval,baseLine) = cv2.getTextSize(textLabel,cv2.FONT_HERSHEY_COMPLEX,1,1)
 			textOrg = (real_x1, real_y1-0)
-
+			#写文字
 			cv2.rectangle(img, (textOrg[0] - 5, textOrg[1]+baseLine - 5), (textOrg[0]+retval[0] + 5, textOrg[1]-retval[1] - 5), (0, 0, 0), 2)
 			cv2.rectangle(img, (textOrg[0] - 5,textOrg[1]+baseLine - 5), (textOrg[0]+retval[0] + 5, textOrg[1]-retval[1] - 5), (255, 255, 255), -1)
 			cv2.putText(img, textLabel, textOrg, cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 1)
@@ -246,4 +248,5 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	print(all_dets)
 	cv2.imshow('img', img)
 	cv2.waitKey(0)
-	# cv2.imwrite('./results_imgs/{}.png'.format(idx),img)
+	# cv2.imwrite('./results_imgs/{}.png'.format(idx),img) #输出图像
+	
